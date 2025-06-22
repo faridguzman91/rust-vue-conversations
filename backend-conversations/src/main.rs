@@ -1,5 +1,6 @@
 use actix_web::{post, web, App, HttpResponse, HttpServer};
 use aws_sdk_s3::Client;
+use std::path::Path;
 
 fn generate_waveform(audio_path: &str, json_path: &str) -> std::io::Result<()> {
     let status = Command::new("audiowaveform")
@@ -10,6 +11,25 @@ fn generate_waveform(audio_path: &str, json_path: &str) -> std::io::Result<()> {
         eprintln!("audiowaveform failed!")
     }
     Ok(())
+}
+
+#[get("/audio/{filename}")]
+async fn get_audio(filename: web::Path<String>, s3: web::Data<Client>) -> HttpResponse {
+    let result = s3
+        .get_object()
+        .bucket("voicelogs")
+        .key(&filename)
+        .send()
+        .await;
+
+    match result {
+        Ok(output) => {
+            let body = output.body.collect().await.unwrap();
+            HttpResponse::Ok().content_type("audio/mpeg").body(body)
+        }
+
+        Err(_) => HttpResponse::NotFound().body("Audio file not found"),
+    }
 }
 
 #[post("/upload")]
