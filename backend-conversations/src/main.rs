@@ -32,6 +32,24 @@ async fn get_audio(filename: web::Path<String>, s3: web::Data<Client>) -> HttpRe
     }
 }
 
+#[get("/waveform/{filename}")]
+async fn get_waveform(filename: web::Path<String>, s3: web::Data<Client>) -> HttpResponse {
+    let result = s3
+        .get_object()
+        .bucket("voicelogs")
+        .key(&format!("{}.json", filename)) // assuming json files are stored with the same name
+        .send()
+        .await;
+
+    match result {
+        Ok(output) => {
+            let body = output.body.collect().await.unwrap();
+            HttpResponse::Ok().json(body)
+        }
+        Err(_) => HttpResponse::NotFound().body("Waveform data not found"),
+    }
+}
+
 #[post("/upload")]
 async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse {
     s3.put_object()
