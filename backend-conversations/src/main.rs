@@ -1,18 +1,14 @@
-use actix_web::{post, web, App, HttpResponse, HttpServer};
+use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_s3::config::Config;
-use aws_sdk_s3::credentials::Credentials;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client;
-use dotenv::dotenv;
+use aws_sdk_s3::config::Credentials;
 use std::env;
-use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::process::Command;
+use std::fs::File;
 use tempfile::NamedTempFile;
-use tokio::fs;
 use uuid::Uuid;
-
 //dotenv().ok();
 
 fn generate_waveform(audio_path: &str, json_path: &str) -> std::io::Result<()> {
@@ -26,27 +22,27 @@ fn generate_waveform(audio_path: &str, json_path: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-#[get("/audio/{filename}")]
-async fn get_audio(filename: web::Path<String>, s3: web::Data<Client>) -> HttpResponse {
+async fn get_audio(filename: web::Path<String>, s3: web::Data<Client>) -> impl Responder {
     let result = s3
         .get_object()
         .bucket("voicelogs")
-        .key(&filename)
+        .key(&*filename)
         .send()
         .await;
 
     match result {
         Ok(output) => {
             let body = output.body.collect().await.unwrap();
-            HttpResponse::Ok().content_type("audio/mpeg").body(body)
+            let bytes = body.into_bytes();
+
+            HttpResponse::Ok().content_type("audio/mpeg").body(bytes)
         }
 
         Err(_) => HttpResponse::NotFound().body("Audio file not found"),
     }
 }
 
-#[get("/waveform/{filename}")]
-async fn get_waveform(filename: web::Path<String>, s3: web::Data<Client>) -> HttpResponse {
+async fn get_waveform(filename: web::Path<String>, s3: web::Data<Client>) -> impl Responder {
     let result = s3
         .get_object()
         .bucket("voicelogs")
@@ -57,14 +53,16 @@ async fn get_waveform(filename: web::Path<String>, s3: web::Data<Client>) -> Htt
     match result {
         Ok(output) => {
             let body = output.body.collect().await.unwrap();
-            HttpResponse::Ok().json(body)
+            let bytes = body.into_bytes();
+            HttpResponse::Ok()
+                .content_type("application/json")
+                .body(bytes)
         }
         Err(_) => HttpResponse::NotFound().body("Waveform data not found"),
     }
 }
 
-#[post("/upload")]
-async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse {
+async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> impl Responder  {
     // save audio to a temp file
     let mut temp_audio = NamedTempFile::new().unwrap();
     if let Err(e) = std::io::Write::write_all(&mut temp_audio, &audio) {
@@ -134,11 +132,13 @@ async fn main() -> std::io::Result<()> {
     let access_key = env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID is required");
     let secret_key = env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY is required");
     let region_provider = RegionProviderChain::default_provider().or_else("eu-north-1");
-    let bucket = env::var("AWS_S3_BUCKET").expect("AWS_S3_BUCKET must be set");
+    let _bucket = env::var("AWS_S3_BUCKET").expect("AWS_S3_BUCKET must be set");
 
-    let credentials = Credentials::new(access_key, secret_key, None, None, "custom");
-    let config = aws_config::from_env().region(region_provider).load().await;
-
+    let _credentials = Credentials::new(access_key, secret_key, None, None, "custom");
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+    .region(region_provider)
+    .load()
+    .await;
     let s3_client = Client::new(&config);
 
     HttpServer::new(move || {
@@ -147,7 +147,7 @@ async fn main() -> std::io::Result<()> {
             .route("/upload", web::post().to(upload_audio))
             .route("/audio/{filename}", web::get().to(get_audio))
             .route("/waveform/{filename}", web::get().to(get_waveform))
-            .service(upload_audio)
+//            .service(upload_audio)
     })
     .bind("127.0.0.1:8080")?
     .run()
