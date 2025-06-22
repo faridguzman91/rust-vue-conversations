@@ -18,6 +18,9 @@ const waveformFileName = 'sound'
 const audioSrc = `http://localhost:8080/audio/${audioFileName}`
 const waveformSrc = `http://localhost:8080/waveform/${waveformFileName}`
 
+const audioUrl = ref(`${import.meta.env.VITE_S3_URL}/audioname.wav`)
+const waveformUrl = ref(`${import.meta.env.VITE_S3_URL}/waveformname.json`)
+
 let peaksInstance = null
 
 onMounted(async () => {
@@ -37,7 +40,7 @@ onMounted(async () => {
       },
       mediaElement: document.querySelector('audio'),
       dataUri: {
-        arraybuffer: waveformData
+        arraybuffer: waveformData //or waveformUrl from s3
       }
     }
 
