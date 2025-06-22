@@ -9,7 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.5.13"
+    "konva": "^9.3.20",
+    "peaks.js": "^3.4.2",
+    "vue": "^3.5.13",
+    "vue-peaks": "^2.0.2",
+    "waveform-data": "^4.5.2"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.3",
