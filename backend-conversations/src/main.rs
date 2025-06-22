@@ -1,6 +1,9 @@
 use actix_web::{post, web, App, HttpResponse, HttpServer};
-use aws_sdk_s3::Client;
+use aws_sdk_s3::{ Client, Region };
+use aws_sdk_s3::config::Config;
+use aws_sdk_s3::credentials::Credentials;
 use std::path::Path;
+use std::env;
 
 fn generate_waveform(audio_path: &str, json_path: &str) -> std::io::Result<()> {
     let status = Command::new("audiowaveform")
@@ -71,6 +74,11 @@ async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse 
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+
+    //aws config
+    let access_key = env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID is required");
+    let secret_key = env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY is required");
+    let region = Region::new("eu-north-1");
     //example config
     let config = aws_sdk_s3::Config::builder()
         .region("us-east-1") // replace
@@ -78,6 +86,8 @@ async fn main() -> std::io::Result<()> {
         .build();
 
     let s3_client = Client::from_conf(config);
+
+
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(s3_client.clone()))
