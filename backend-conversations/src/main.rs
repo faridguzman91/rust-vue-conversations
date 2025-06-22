@@ -1,15 +1,17 @@
 use actix_web::{post, web, App, HttpResponse, HttpServer};
+use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::config::Config;
 use aws_sdk_s3::credentials::Credentials;
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::{Client, Region};
+use aws_sdk_s3::Client;
 use dotenv::dotenv;
 use std::env;
-use std::path::Path;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use tempfile::NamedTempFile;
 use tokio::fs;
+use uuid::Uuid;
 
 //dotenv().ok();
 
@@ -86,7 +88,8 @@ async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse 
     let waveform_key = format!("{}.json", uuid);
 
     let audio_bytes = ByteStream::from_path(audio_path).await.unwrap();
-    let audio_result = s3.put_object()
+    let audio_result = s3
+        .put_object()
         .bucket(&bucket)
         .key(&audio_key)
         .body(audio_bytes)
@@ -105,7 +108,8 @@ async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse 
         eprintln!("Failed to read waveform JSON: {}", e);
         return HttpResponse::InternalServerError().body("Failed to read waveform JSON");
     }
-    let waveform_result = s3.put_object()
+    let waveform_result = s3
+        .put_object()
         .bucket(&bucket)
         .key(&waveform_key)
         .body(ByteStream::from(json_buf))
@@ -123,24 +127,19 @@ async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse 
     }))
 }
 
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
     //aws config
     let access_key = env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID is required");
     let secret_key = env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY is required");
-    let region = Region::new("eu-north-1"); // the region of my s3
+    let region_provider = RegionProviderChain::default_provider().or_else("eu-north-1");
     let bucket = env::var("AWS_S3_BUCKET").expect("AWS_S3_BUCKET must be set");
 
     let credentials = Credentials::new(access_key, secret_key, None, None, "custom");
+    let config = aws_config::from_env().region(region_provider).load().await;
 
-    let config = Config::builder()
-        .region(region) // replace with my region
-        .credentials_provider(credentials)
-        .build();
-
-    let s3_client = Client::from_conf(config);
+    let s3_client = Client::new(&config);
 
     HttpServer::new(move || {
         App::new()
