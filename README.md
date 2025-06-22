@@ -4,7 +4,7 @@ run `npm install && npm run dev` for the front end
 
 run `cargo run` for backend
 
-run `kamailio -f /your-path-to-kamailio/kamailio.cfg -DD`
+run `kamailio -f /your-path-to-kamailio/kamailio.cfg -DD` to run sip server
 
 
 to install kamailio
