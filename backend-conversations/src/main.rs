@@ -1,10 +1,15 @@
 use actix_web::{post, web, App, HttpResponse, HttpServer};
 use aws_sdk_s3::config::Config;
 use aws_sdk_s3::credentials::Credentials;
+use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::{Client, Region};
+use dotenv::dotenv;
 use std::env;
 use std::path::Path;
-use dotenv::dotenv;
+use std::fs::File;
+use std::io::Read;
+use tempfile::NamedTempFile;
+use tokio::fs;
 
 //dotenv().ok();
 
@@ -58,23 +63,55 @@ async fn get_waveform(filename: web::Path<String>, s3: web::Data<Client>) -> Htt
 
 #[post("/upload")]
 async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse {
-    s3.put_object()
+    // @fardguzman - save audio to a temp file
+    let mut temp_audio = NamedTempFile::new().unwrap();
+    std::io::Write::write_all(&mut temp_audio, &audio).unwrap();
+    let audio_path = temp_audio.path().to_str().unwrap();
+
+    let temp_json = NamedTempFile::new().unwrap();
+    let json_path = temp_json.path().to_str().unwrap();
+    if let Err(e) = generate_waveform(audio_path, json_path) {
+        eprintln!("Waveform generation failed: {}", e);
+        return HttpResponse::InternalServerError().body("Waveform generation failed");
+    }
+
+    // @faridguzman - upload audio to S3
+    let audio_bytes = ByteStream::from_path(audio_path).await.unwrap();
+    let audio_key = "file.wav";
+    let audio_result = s3.put_object()
         .bucket("voicelogs")
-        .body(audio.into())
+        .key(audio_key)
+        .body(audio_bytes)
         .send()
         .await;
 
-    // added patern matching for error handling
-    match result {
-        Ok(_) => HttpResponse::Ok().body("Uploaded"),
-        Err(e) => {
-            eprintln!("Error uploading to S3: {}", e);
-            HttpResponse::InternalServerError().body("Failed to upload")
-        }
+    if let Err(e) = audio_result {
+        eprintln!("Error uploading audio to S3: {}", e);
+        return HttpResponse::InternalServerError().body("Failed to upload audio");
     }
-    HttpResponse::Ok().body("Uploaded")
-}
 
+    // @faridguzman - upload waveform JSON to S3
+    let mut json_file = File::open(json_path).unwrap();
+    let mut json_buf = Vec::new();
+    json_file.read_to_end(&mut json_buf).unwrap();
+    let waveform_key = "file.json";
+    let waveform_result = s3.put_object()
+        .bucket("voicelogs")
+        .key(waveform_key)
+        .body(ByteStream::from(json_buf))
+        .send()
+        .await;
+
+    if let Err(e) = waveform_result {
+        eprintln!("Error uploading waveform to S3: {}", e);
+        return HttpResponse::InternalServerError().body("Failed to upload waveform");
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "audio_url": format!("https://your-bucket-name.s3.amazonaws.com/{}", audio_key),
+        "waveform_url": format!("https://your-bucket-name.s3.amazonaws.com/{}", waveform_key),
+    }))
+}
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     //aws config
