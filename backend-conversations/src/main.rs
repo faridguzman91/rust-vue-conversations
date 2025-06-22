@@ -18,16 +18,28 @@ async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse 
         .bucket("voicelogs")
         .body(audio.into())
         .send()
-        .await
-        .unwrap();
+        .await;
 
+    // added patern matching for error handling
+    match result {
+        Ok(_) => HttpResponse::Ok().body("Uploaded"),
+        Err(e) => {
+            eprintln!("Error uploading to S3: {}", e);
+            HttpResponse::InternalServerError().body("Failed to upload")
+        }
+    }
     HttpResponse::Ok().body("Uploaded")
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let s3_client = aws_sdk_s3::Client::new( /* some config */);
+    //example config
+    let config = aws_sdk_s3::Config::builder()
+        .region("us-east-1") // replace
+        .credentials_provider(aws_sdk_s3::credentials::EnvironmentProvider::default())
+        .build();
 
+    let s3_client = Client::from_conf(config);
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(s3_client.clone()))
