@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+actix-web = "4.11.0"
+aws-sdk-s3 = "1.91.0"
+sqlx = "0.8.6"
+tokio = "1.45.1"
