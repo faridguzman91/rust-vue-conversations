@@ -63,11 +63,15 @@ async fn get_waveform(filename: web::Path<String>, s3: web::Data<Client>) -> Htt
 
 #[post("/upload")]
 async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse {
-    // @fardguzman - save audio to a temp file
+    // save audio to a temp file
     let mut temp_audio = NamedTempFile::new().unwrap();
-    std::io::Write::write_all(&mut temp_audio, &audio).unwrap();
+    if let Err(e) = std::io::Write::write_all(&mut temp_audio, &audio) {
+        eprintln!("Failed to write audio: {}", e);
+        return HttpResponse::InternalServerError().body("Failed to save audio");
+    }
     let audio_path = temp_audio.path().to_str().unwrap();
 
+    // generate waveform JSON
     let temp_json = NamedTempFile::new().unwrap();
     let json_path = temp_json.path().to_str().unwrap();
     if let Err(e) = generate_waveform(audio_path, json_path) {
@@ -75,12 +79,16 @@ async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse 
         return HttpResponse::InternalServerError().body("Waveform generation failed");
     }
 
-    // @faridguzman - upload audio to S3
+    let bucket = env::var("AWS_S3_BUCKET").expect("AWS_S3_BUCKET must be set");
+
+    let uuid = Uuid::new_v4();
+    let audio_key = format!("{}.wav", uuid);
+    let waveform_key = format!("{}.json", uuid);
+
     let audio_bytes = ByteStream::from_path(audio_path).await.unwrap();
-    let audio_key = "file.wav";
     let audio_result = s3.put_object()
-        .bucket("voicelogs")
-        .key(audio_key)
+        .bucket(&bucket)
+        .key(&audio_key)
         .body(audio_bytes)
         .send()
         .await;
@@ -90,14 +98,16 @@ async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse 
         return HttpResponse::InternalServerError().body("Failed to upload audio");
     }
 
-    // @faridguzman - upload waveform JSON to S3
+    // upload waveform JSON to S3
     let mut json_file = File::open(json_path).unwrap();
     let mut json_buf = Vec::new();
-    json_file.read_to_end(&mut json_buf).unwrap();
-    let waveform_key = "file.json";
+    if let Err(e) = json_file.read_to_end(&mut json_buf) {
+        eprintln!("Failed to read waveform JSON: {}", e);
+        return HttpResponse::InternalServerError().body("Failed to read waveform JSON");
+    }
     let waveform_result = s3.put_object()
-        .bucket("voicelogs")
-        .key(waveform_key)
+        .bucket(&bucket)
+        .key(&waveform_key)
         .body(ByteStream::from(json_buf))
         .send()
         .await;
@@ -108,16 +118,20 @@ async fn upload_audio(audio: web::Bytes, s3: web::Data<Client>) -> HttpResponse 
     }
 
     HttpResponse::Ok().json(serde_json::json!({
-        "audio_url": format!("https://your-bucket-name.s3.amazonaws.com/{}", audio_key),
-        "waveform_url": format!("https://your-bucket-name.s3.amazonaws.com/{}", waveform_key),
+        "audio_url": format!("https://{}.s3.amazonaws.com/{}", bucket, audio_key),
+        "waveform_url": format!("https://{}.s3.amazonaws.com/{}", bucket, waveform_key),
     }))
 }
+
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    dotenv::dotenv().ok();
     //aws config
     let access_key = env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID is required");
     let secret_key = env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY is required");
     let region = Region::new("eu-north-1"); // the region of my s3
+    let bucket = env::var("AWS_S3_BUCKET").expect("AWS_S3_BUCKET must be set");
 
     let credentials = Credentials::new(access_key, secret_key, None, None, "custom");
 
