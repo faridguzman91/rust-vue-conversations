@@ -1,4 +1,5 @@
-rust-vue-conversations
+## rust-vue-conversations
+
 This project is a full-stack VoIP and messaging platform using:
 
 Rust for backend API and S3 integration
@@ -10,7 +11,7 @@ Kamailio as the SIP signaling server
 FreeSWITCH as the media/voicemail server
 
 
-#Quick Start
+## Quick Start
 Frontend (Vue)
 
 ```
@@ -20,16 +21,15 @@ npm run dev
 ```
 
 
-#Backend (Rust)
+## Backend (Rust)
 ```
 cd backend-conversations
 cargo run
 
 ```
 
-#SIP Server (Kamailio)
+## SIP Server (Kamailio)
 Install Kamailio
-
 ```
 git clone https://github.com/kamailio/kamailio.git kamailio
 cd kamailio
@@ -40,13 +40,13 @@ sudo make install
 
 ```
 
-#Run Kamailio
+# Run Kamailio
 ```
 kamailio -f /your-path-to-kamailio/kamailio.cfg -DD
 ```
 
 
-#Media Server (FreeSWITCH)
+# Media Server (FreeSWITCH)
 Install All Required Dependencies
 
 
@@ -63,7 +63,7 @@ sudo apt-get install -y \
 ```
 
 
-#Install libks2 (Required for mod_verto and SignalWire modules)
+# Install libks2 (Required for mod_verto and SignalWire modules)
 ```
 cd /usr/local/src
 sudo git clone https://github.com/signalwire/libks.git
@@ -73,7 +73,7 @@ sudo make
 sudo make install
 sudo ldconfig
 ```
-#Install signalwire-c (Required for mod_signalwire)
+# Install signalwire-c (Required for mod_signalwire)
 
 
 ```
@@ -85,8 +85,7 @@ sudo make
 sudo make install
 sudo ldconfig
 ```
-
-#Build and Install FreeSWITCH
+# Build and Install FreeSWITCH
 ```
 git clone https://github.com/signalwire/freeswitch.git
 cd freeswitch
@@ -99,7 +98,7 @@ sudo make all cd-sounds-install cd-moh-install
 ```
 
 
-#Troubleshooting
+# Troubleshooting
 If you see errors about missing packages during ./configure, install the required -dev package and re-run ./configure.
 
 For assembler errors (libvpx):
