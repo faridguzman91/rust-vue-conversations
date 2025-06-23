@@ -1,0 +1,33 @@
+version: '3.8'
+
+services: 
+  backend:
+    build:
+      context: ./backend-conversations
+      dockerfile: dockerfile
+    ports: 
+      - "8080:8080"
+    volumes:
+       - ./backend-conversations:/app
+       - cargo-registry:/usr/local/cargo/registry
+    environment:
+       - AWS_ACCESS_KEY_ID
+       - AWS_SECRET_ACCESS_KEY
+       - AWS_S3_BUCKET
+       - RUST_BACKTRACE=1
+    command: cago watch -x run
+  
+  frontend:
+     build:
+      context: ./frontend-conversations
+      dockerfile: Dockerfile
+     ports:
+      - "5173:5173"
+     volumes:
+      - ./frontend-conversations:/app
+      - /app/node_modules
+     command: npm run dev -- --host 0.0.0.0
+
+  volumes:
+    cargo-registry:
+
