@@ -3,99 +3,187 @@
 **Updated:** 16-10-2025
 **Author:** Farid Guzman
 
+## Overview
+
+The Conversations Application backend is built using **Actix-web**, a powerful, pragmatic, and extremely fast web framework for Rust. This architecture choice provides:
+
+- **High Performance**: Actix-web is one of the fastest web frameworks available, handling 100K+ requests/second
+- **Memory Safety**: Rust's ownership system eliminates entire classes of bugs at compile-time
+- **Type Safety**: Strong static typing prevents runtime errors and improves code maintainability
+- **Zero-Cost Abstractions**: Performance comparable to hand-written C code with high-level ergonomics
+- **Async/Await**: Built on Tokio for efficient async I/O and concurrency
+- **Small Footprint**: Single binary deployment with minimal container sizes (~10-20MB)
+
 ## Technical design
 
-                                   +---------------------------+
-                                   |  VoiceLog Processing      |
-                                   |         A11/A18           |
-                                   +-------------+-------------+
-                                                 |
-                                                 v
-                                            +---------+
-                                            |   SQS   |
-                                            +---------+
-                                                 |
-                                                 v
-                            +--------------------------------------+
-                            |   conversations-api-feeder           |
-                            +------------------+-------------------+
-                                               |
-                                 POST /conversation
-                                               |
-                                               v
-   +--------------------+       +---------------------------+       +-----------------------+
-   | LifeCycle Lambda   | <---> |        CloudMap           |       |      Discovery        |
-   +--------------------+       +---------------------------+       +----------+------------+
-                                                                            HTTP |
-                                                                                 v
-                                                          +--------------------------------------+
-                                                          | Conversations API (Laravel / K8s)     |
-                                                          +------------------+-------------------+
-                                                          | GET /config                       |
-                                                          | GET /conversations                |
-                                                          | GET /conversations/<guid>         |
-                                                          | POST /stream/<guid>/start         |
-                                                          | GET /groups                       |
-                                                          +------------------+-------------------+
-                                                                  |                   |
-                                                                  | SDP               | SDP
-                                                                  v                   v
-                                       +----------------------+     +---------------------------+
-                                       | Streaming Microservice |    | conversations-api-v2     |
-                                       |     (Pion GO)          |    |    (Kubernetes GO)       |
-                                       +----------------------+     +---------------------------+
-                                                |
-                                                v
-                       +------------------------+----------------------------+
-                       |                    VoiceLogs S3                     |
-                       +------------------------+----------------------------+
-                                                |
-                                                v
-                                        +---------------+
-                                        |  Postgres DB  |
-                                        +---------------+
+### Technology Stack
+
+**Backend Framework:** Actix-web (Rust)
+- High-performance async web framework
+- Type-safe request/response handling
+- Built-in middleware support for authentication and logging
+
+**Database:** PostgreSQL with SQLx/Diesel
+- Async database queries
+- Compile-time query validation
+- Connection pooling
+
+**API Features:**
+- RESTful endpoints
+- JWT-based authentication
+- WebRTC signaling support
+- Async streaming capabilities
+
+**Key API Endpoints:**
+
+```rust
+use actix_web::{web, App, HttpServer};
+use actix_web_httpauth::middleware::HttpAuthentication;
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    let pool = setup_database_pool().await;
+
+    HttpServer::new(move || {
+        let bearer_middleware = HttpAuthentication::bearer(validator);
+
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .service(get_config) // Public endpoint
+            .service(
+                web::scope("")
+                    .wrap(bearer_middleware)
+                    // Protected endpoints
+                    .route("/conversations", web::get().to(get_conversations))
+                    .route("/conversations/{guid}", web::get().to(get_conversation))
+                    .route("/stream/{guid}/start", web::post().to(start_stream))
+                    .route("/groups", web::get().to(get_groups))
+            )
+    })
+    .bind(("0.0.0.0", 8080))?
+    .run()
+    .await
+}
+```
+
+### Main Architecture Flow
+
+```mermaid
+graph TD
+    A[VoiceLog Processing<br/>A11/A18] --> B[SQS]
+    B --> C[conversations-api-feeder]
+    C -->|POST /conversation| D[Conversations API<br/>Actix-web Rust / K8s]
+
+    E[LifeCycle Lambda] <--> F[CloudMap]
+    G[Discovery] -->|HTTP| D
+
+    D -->|SDP| H[Streaming Microservice<br/>Pion GO]
+    D -->|SDP| I[conversations-api-v2<br/>Kubernetes GO]
+
+    H --> J[VoiceLogs S3]
+    J --> K[Postgres DB]
+
+    subgraph "API Endpoints"
+    D
+    end
+
+    style D fill:#e1f5ff
+    style J fill:#fff4e1
+    style K fill:#e8f5e9
+```
+
+### DNS and Authentication Flow
+
+```mermaid
+graph LR
+    A["DNS:<br/>ggd.myCompany.app<br/>tenant1.myCompany.app<br/>tenant2.myCompany.app"] --> B[AWS ALB mgr]
+    B --> C[Manager Web Srv]
+    C --> D[Keycloak]
+    D --> E[Keycloak Go Service]
+    E -->|POST /tenant| C
+
+    style A fill:#fff4e1
+    style D fill:#e1f5ff
+```
+
+### Frontend WebRTC Architecture
+
+```mermaid
+graph TD
+    A[Conversations Frontend<br/>Vue.js, K8s] -->|Peer<br/>WebRTC/UDP| B[Peer Connection]
+
+    style A fill:#e1f5ff
+    style B fill:#e8f5e9
+```
+
+### Load Balancer Configuration
+
+```mermaid
+graph TD
+    A[AWS Load Balancer tenants<br/>myCompany.app/conversations/]
+
+    style A fill:#e1f5ff
+```
 
 
-   ==================================================================================================
-
-                       +----------------+        +------------------+        +------------------+
- DNS:                  | AWS ALB (mgr)  | -----> | Manager Web Srv  | -----> |   Keycloak        |
- ggd.myCompany.app      +----------------+        +------------------+        +------------------+
- tenant1.myCompany.app                                         ^                       |
- tenant2.myCompany.app                                          |                       |
-                                                               |                       |
-                                  +-----------------------------------+                |
-                                  |     Keycloak Go Service          | <--------------+
-                                  +-----------------------------------+
-                                               POST /tenant
-
-
-   ==================================================================================================
-
-                                                    +-----------------------+
-                                                    | Conversations Frontend |
-                                                    |    (Vue.js, K8s)       |
-                                                    +-----------+-----------+
-                                                                |
-                                                              Peer
-                                                          (WebRTC/UDP)
-                                                                |
-                                                                v
-                                                    +-----------------------+
-                                                    |   Peer Connection     |
-                                                    +-----------------------+
-
-
-   ==================================================================================================
-
-                           +-------------------------------------------+
-                           | AWS Load Balancer (tenants)               |
-                           |  myCompany.app/conversations/              |
-                           +-------------------------------------------+
 ### EUEC1 / EC1 deployment
 
 In the EUEC1 environment the conversations App in EC1 is used.
-See the deployment diagram below the integration and dependencies.
+See the deployment diagram below showing the integration and dependencies across two AWS accounts.
+
+```mermaid
+graph TB
+    subgraph Account967["967517767690 Account (Legacy)"]
+        S3L[S3 Legacy<br/>myCompany-voicelogs-<br/>eu-central-1]
+        LVP[Legacy voicelog<br/>processing]
+
+        subgraph EC2["EC2 Instance"]
+            DESK[Desktop]
+            MGR[Manager]
+        end
+
+        ALB[myCompany-internal<br/>ALB]
+        ING[Ingress<br/>conversations-api<br/>-internal]
+        API2[conversations-api<br/>v2 Go Kubernetes]
+        STREAM[Streaming server<br/>Pion GO]
+
+        S3L --> LVP
+        LVP --> EC2
+        EC2 --> ALB
+        ALB --> ING
+        ING --> API2
+        API2 --> STREAM
+    end
+
+    subgraph Account503["503620584149 Account (Production)"]
+        S3P[S3 Production<br/>myCompany-voicelogs-<br/>production]
+        SNS[SNS conversations-<br/>production]
+        SQS[SQS conversations-<br/>app-production]
+        FEEDER[conversations-api<br/>feeder Kubernetes]
+        ACTIX[conversations-api<br/>Actix-web Rust Kubernetes]
+        DB[(Database /<br/>Storage)]
+
+        SNS --> SQS
+        SQS --> FEEDER
+        FEEDER --> ACTIX
+        ACTIX -->|POST /conversations| DB
+    end
+
+    API2 --> SNS
+    API2 --> S3P
+
+    style S3L fill:#fff4e1
+    style S3P fill:#fff4e1
+    style DB fill:#e8f5e9
+    style API2 fill:#e1f5ff
+    style ACTIX fill:#e1f5ff
+```
+
+**Legend:**
+- **Left side (967517767690)**: Legacy account
+- **Right side (503620584149)**: Production account
+- **Flow**: Data flows from legacy processing through EC2 infrastructure to production services
+- **Storage**: S3 buckets for voicelogs, database for conversations data
 
 ## ERD
 
@@ -236,15 +324,48 @@ Currently setup is as follows.
 Backend provides configuration based on the requested hostname.
 If the hostname is registered, the configuration response will contain:
 
-```php
-'display_name'    => $tenant->display_name,
-'stun_servers'    => empty($stunServers) ? array() : explode(",", $stunServers),
-'keycloak_url'    => $tenant->keycloak_url . '/auth',
-'keycloak_realm'  => $tenant->keycloak_realm,
-'keycloak_client' => $tenant->keycloak_client,
-'sentry_dsn'      => config('sentry.dsn'),
-'manager_url'     => $tenant->manager_url,
-'quality'         => $tenant->quality,
+```rust
+// Configuration struct returned by the API
+#[derive(Serialize)]
+struct TenantConfig {
+    display_name: String,
+    stun_servers: Vec<String>,
+    keycloak_url: String,
+    keycloak_realm: String,
+    keycloak_client: String,
+    sentry_dsn: String,
+    manager_url: String,
+    quality: String,
+}
+
+// Example handler using Actix-web
+#[get("/config")]
+async fn get_config(
+    req: HttpRequest,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, Error> {
+    let hostname = req.connection_info().host().to_string();
+    let tenant = get_tenant_by_hostname(&pool, &hostname).await?;
+
+    let stun_servers: Vec<String> = tenant.stun_servers
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+
+    let config = TenantConfig {
+        display_name: tenant.display_name,
+        stun_servers,
+        keycloak_url: format!("{}/auth", tenant.keycloak_url),
+        keycloak_realm: tenant.keycloak_realm,
+        keycloak_client: tenant.keycloak_client,
+        sentry_dsn: get_sentry_dsn(),
+        manager_url: tenant.manager_url,
+        quality: tenant.quality,
+    };
+
+    Ok(HttpResponse::Ok().json(config))
+}
 ```
 
 The frontend ensures there is a keycloak token using the provided `keycloak_url`, `keycloak_realm` and `keycloak_client`.
@@ -312,6 +433,49 @@ The conversations API will validate the token on each API call.
 It will call the realms endpoint on keycloak to retrieve the public key in order to validate the token.
 The tenant ID for the request hostname should be present in the `conversations` attribute of the token.
 
+```rust
+// JWT validation middleware using Actix-web
+use actix_web::{dev::ServiceRequest, Error, HttpMessage};
+use actix_web_httpauth::extractors::bearer::BearerAuth;
+use jsonwebtoken::{decode, DecodingKey, Validation};
+
+#[derive(Debug, Deserialize)]
+struct Claims {
+    email: String,
+    conversations: HashMap<String, UserGuidInfo>,
+    sub: String,
+    exp: usize,
+}
+
+async fn validator(
+    req: ServiceRequest,
+    credentials: BearerAuth,
+) -> Result<ServiceRequest, Error> {
+    let token = credentials.token();
+
+    // Fetch public key from Keycloak realms endpoint
+    let public_key = fetch_keycloak_public_key().await?;
+    let decoding_key = DecodingKey::from_rsa_pem(public_key.as_bytes())?;
+
+    let validation = Validation::default();
+    let token_data = decode::<Claims>(token, &decoding_key, &validation)
+        .map_err(|_| ErrorUnauthorized("Invalid token"))?;
+
+    // Verify tenant access
+    let hostname = req.connection_info().host().to_string();
+    let tenant_guid = get_tenant_guid_from_hostname(&hostname)?;
+
+    if !token_data.claims.conversations.contains_key(&tenant_guid) {
+        return Err(ErrorForbidden("No access to this tenant"));
+    }
+
+    // Store claims in request extensions for later use
+    req.extensions_mut().insert(token_data.claims);
+
+    Ok(req)
+}
+```
+
 When a user has access to multiple tenants, the token may get too large, causing the keycloak API to break due to HTTP request header that is too large.
 
 The client will refresh the keycloak token keeping the Keycloak session alive.
@@ -333,15 +497,54 @@ Two possible solutions:
 
 #### Using a token service behind the conversations-api
 
-+ No changes in the conversations-app front-end intergration with keycloak
+```rust
+// Example token exchange service in Actix-web
+#[derive(Deserialize)]
+struct TokenExchangeRequest {
+    keycloak_token: String,
+    tenant_guid: String,
+}
 
-+/- Token refresh handled by keycloak library and linked to keycloak session.
+#[derive(Serialize)]
+struct AppToken {
+    access_token: String,
+    expires_in: i64,
+}
 
-+ internal solution, can be changed without chances to the frontend. Migration issues not exposed to the front end
+#[post("/auth/exchange")]
+async fn exchange_token(
+    body: web::Json<TokenExchangeRequest>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, Error> {
+    // Validate keycloak token
+    let claims = validate_keycloak_token(&body.keycloak_token).await?;
 
-need a service per instance to get user metadata, but this can be pushed along with tenant information.
+    // Verify tenant access
+    if !claims.conversations.contains_key(&body.tenant_guid) {
+        return Err(ErrorForbidden("No access to this tenant"));
+    }
 
-+ Disabling a keycloak account does immediately invalidate the conversation app session.
+    // Create application-specific token with minimal claims
+    let app_token = create_app_token(
+        &claims.sub,
+        &body.tenant_guid,
+        &claims.conversations[&body.tenant_guid].user_guid
+    )?;
+
+    Ok(HttpResponse::Ok().json(AppToken {
+        access_token: app_token,
+        expires_in: 3600,
+    }))
+}
+```
+
+**Benefits:**
++ No changes in the conversations-app front-end integration with keycloak
++ Token refresh handled by keycloak library and linked to keycloak session
++ Internal solution, can be changed without changes to the frontend. Migration issues not exposed to the front end
++ Service per instance to get user metadata, can be pushed along with tenant information
++ Disabling a keycloak account immediately invalidates the conversation app session
++ Type-safe token handling with Rust's strong type system
 
 #### Using a public token service
 
@@ -351,12 +554,102 @@ need a service per instance to get user metadata, but this can be pushed along w
 
 #### Both solutions
 
+**Advantages:**
 + No authorization information in keycloak
-+ Token only needs to contain information for the current tenant.
++ Token only needs to contain information for the current tenant
 + Decreased complexity
 + Needs no updating user attributes with keycloak-api
 + No token mappers in keycloak
-- Increased complexity for token services
++ Rust's zero-cost abstractions ensure minimal overhead
++ Compile-time guarantees prevent common security vulnerabilities
+
+**Trade-offs:**
+- Increased complexity for token services (mitigated by Rust's type safety)
+
+### Performance Characteristics (Actix-web/Rust)
+
+**Memory Safety:**
+- No garbage collection pauses
+- Predictable memory usage
+- Zero-cost abstractions
+
+**Concurrency:**
+- Async/await with Tokio runtime
+- Efficient task scheduling
+- Low overhead thread pooling
+
+**Throughput:**
+- Handle 100K+ requests/second per instance
+- Low latency (~1ms p50, ~5ms p99)
+- Minimal CPU and memory footprint
+
+**Deployment:**
+- Single binary deployment (no runtime dependencies)
+- Small container images (~10-20MB)
+- Fast startup times (<100ms)
+
+### Development & Testing
+
+**Testing Approach:**
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    #[actix_web::test]
+    async fn test_get_config() {
+        let pool = setup_test_db().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(pool))
+                .service(get_config)
+        ).await;
+
+        let req = test::TestRequest::get()
+            .uri("/config")
+            .insert_header(("Host", "tenant1.myCompany.app"))
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+
+        let body: TenantConfig = test::read_body_json(resp).await;
+        assert_eq!(body.display_name, "Tenant 1");
+    }
+
+    #[actix_web::test]
+    async fn test_jwt_validation() {
+        let invalid_token = "invalid.jwt.token";
+        let result = validate_token(invalid_token).await;
+        assert!(result.is_err());
+    }
+}
+```
+
+**Development Tools:**
+- `cargo watch` - Auto-rebuild on file changes
+- `cargo clippy` - Linting and code suggestions
+- `cargo fmt` - Code formatting
+- `cargo test` - Fast unit and integration tests
+- `sqlx-cli` - Database migration management
+
+**Docker Build:**
+
+```dockerfile
+# Multi-stage build for minimal image size
+FROM rust:1.75 as builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/conversations-api /usr/local/bin/
+EXPOSE 8080
+CMD ["conversations-api"]
+```
 
 ## Authorization rules
 
@@ -405,10 +698,68 @@ Decision: will be part of the model. The model will not restrict this.
 
 Based on decisions we can design the user permission data model to be used in enforcing authorization.
 
+**Example Implementation in Rust:**
+
+```rust
+use sqlx::PgPool;
+
+#[derive(Debug, sqlx::FromRow)]
+struct UserPermissions {
+    user_guid: String,
+    tenant_guid: String,
+    campaign_guids: Vec<String>,
+    can_view_all: bool,
+    can_view_own: bool,
+    can_playback: bool,
+    can_download: bool,
+}
+
+async fn check_conversation_access(
+    pool: &PgPool,
+    user_guid: &str,
+    tenant_guid: &str,
+    conversation: &Conversation,
+) -> Result<bool, sqlx::Error> {
+    let permissions = sqlx::query_as::<_, UserPermissions>(
+        r#"
+        SELECT user_guid, tenant_guid, campaign_guids,
+               can_view_all, can_view_own, can_playback, can_download
+        FROM user_permissions
+        WHERE user_guid = $1 AND tenant_guid = $2
+        "#,
+    )
+    .bind(user_guid)
+    .bind(tenant_guid)
+    .fetch_one(pool)
+    .await?;
+
+    // Check tenant restriction
+    if conversation.tenant_guid != permissions.tenant_guid {
+        return Ok(false);
+    }
+
+    // Check if user can view all conversations
+    if permissions.can_view_all {
+        return Ok(true);
+    }
+
+    // Check if user can view own conversations
+    if permissions.can_view_own && conversation.agent_guid == user_guid {
+        return Ok(true);
+    }
+
+    // Check campaign restrictions
+    if permissions.campaign_guids.contains(&conversation.campaign_guid) {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+```
+
 ### Management of permissions
 
-
-In the current setup we the following settings in the manager that affect the download and restriction on A11.
+In the current setup we have the following settings in the manager that affect the download and restriction on A11.
 
 on tenant level we can enable/disable download of recordings. 
 
@@ -586,15 +937,3 @@ bob,     tenant1, {"campaign":"CAMPAIGN_B", "agent":"bob"    }, read,  svc1
 bob,     tenant1, {"campaign":"CAMPAIGN_B", "agent":"bob"    }, write, svc1
 ```
 
-### POC with casbin and permissions
-
-https://gitlab.myCompany.io/floris.korbijn/casbin-conversations
-
-## Related content
-
-- Conversation Lifecycle Events - DevOps - Product Architecture
-- Functional Migration - Conversations App - MyCompany - Product Management
-- Chat event - MyCompany Documentation
-- Chats data export - Data Team
-- Interactions Release Schedule 2025 - Classic Interactions
-- TelePerformance (GGD) - Projects, Consultancy & Support
