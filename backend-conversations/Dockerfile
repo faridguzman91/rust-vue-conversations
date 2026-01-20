@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Multi-stage build for minimal image size
 FROM rust:1.75 as builder
 
@@ -18,10 +19,29 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 
 # Create dummy source to cache dependencies
+=======
+FROM rust:latest
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev
+
+# Install cargo-watch for hot-reloading
+RUN cargo install cargo-watch
+
+WORKDIR /app
+
+# Copy dependency files first for caching
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy main.rs for initial build
+>>>>>>> 45c06de0a4b6d46f90cdaef3f5e616cf5358a533
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 
 # Build dependencies only
 RUN cargo build --release
+<<<<<<< HEAD
 RUN rm src/main.rs
 
 # Copy real source code and rebuild
@@ -63,3 +83,14 @@ ENV RUST_LOG=info
 
 # Run the application
 CMD ["conversations-api"]
+=======
+
+# Copy real source code
+COPY . .
+
+# Overwrite dummy main.rs
+RUN touch src/main.rs
+
+# Expose backend port
+EXPOSE 8080
+>>>>>>> 45c06de0a4b6d46f90cdaef3f5e616cf5358a533

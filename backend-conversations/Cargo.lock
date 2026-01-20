@@ -3,6 +3,7 @@
 version = 4
 
 [[package]]
+<<<<<<< HEAD
 name = "actix-codec"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4158,3 +4159,7 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+=======
+name = "backend-conversations"
+version = "0.1.0"
+>>>>>>> 45c06de0a4b6d46f90cdaef3f5e616cf5358a533
