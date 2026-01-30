@@ -23,3 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
